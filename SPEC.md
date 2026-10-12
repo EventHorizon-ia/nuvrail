@@ -259,6 +259,8 @@ Related operations arriving within a sliding time window share a `batch_id`; the
 
 `gateway/extensions.py` exposes a `nuvrail.plugins` entry-point group. The staging path calls `run_auto_decision(op)`; with no provider registered (open core) every operation follows the manual-approval flow. The **enterprise plugin** registers the rules engine as provider, plus the `/rules` CRUD API, plan-tier entitlements (free = 1 agent; pro = 5 + multi-agent; enterprise = unlimited + rules), and its own idempotent schema migrations.
 
+Those plan tiers exist only inside the plugin; they are not limits on the open build. The public build ships `OpenCoreEntitlements` (`gateway/entitlements.py`): no agent quota (`GET /api/v1/features` reports `max_agents: null`), multi-agent enabled, and `assert_can_create_agent` never refuses. The one capability it reports as unavailable is `auto_approval_rules`, because the rules engine's code ships in the plugin, not because the open build gates it.
+
 Rule capabilities (enterprise): priority-ordered first-match; actions `approve`, `reject`, `approve_after` (cool-down `delay_seconds`; the scheduler loop executes at the deadline; cancellable until then), `hold`; predicates over op type, sender/recipient/subject/flag/intent patterns, folders, message-count bounds, minimum intent confidence, active-hours window with timezone, per-agent scoping; per-rule hourly budget for approving actions; guardrail rules; **shadow mode** (logs the would-be decision, never acts). Every rule decision is audit-attributed (`actor='auto_rule'` + rule id/description).
 
 ---
@@ -391,7 +393,7 @@ Proxies, staging, reverts, expiry, REST API, web PWA, audit API — plus everyth
 ## 16. Open Source Boundary
 
 - **Core — AGPL-3.0** (supersedes v4's MIT/Apache decision): IMAP/SMTP proxies, staging engine, audit log + verification, retention/erasure, REST API, web PWA, Docker Compose. Public repo: `github.com/agens-field/nuvrail`. The hosted app's footer links the corresponding source (AGPL §13).
-- **Proprietary**: the enterprise plugin (`nuvrail-enterprise` — rules engine, plan entitlements, admin API), deploy tooling, iOS app, Nuvrail Cloud operations. The plugin attaches through the `nuvrail.plugins` entry-point seam (§7.5); the public build has no providers registered and is fully functional with manual approval.
+- **Proprietary**: the enterprise plugin (`nuvrail-enterprise` — rules engine, plan entitlements, admin API), deploy tooling, iOS app, Nuvrail Cloud operations. The plugin attaches through the `nuvrail.plugins` entry-point seam (§7.5); the public build has no providers registered and is fully functional with manual approval. Plan tiers and agent quotas are plugin policy; the public build enforces neither (§7.5).
 
 ---
 
