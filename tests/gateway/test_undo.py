@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -111,6 +112,8 @@ class _FakeIMAP:
         move_lines: list | None = None, **kwargs,
     ) -> None:
         self.calls: list[tuple] = []
+        # aioimaplib's client.protocol; XOAUTH2 auth seeds capabilities here.
+        self.protocol = SimpleNamespace(capabilities=set())
         self._uidvalidity = uidvalidity
         self._move_lines = (
             move_lines if move_lines is not None
@@ -123,6 +126,14 @@ class _FakeIMAP:
     async def login(self, user, password):
         self.calls.append(("login", user))
         return "OK", [b"ok"]
+
+    async def xoauth2(self, user, token):
+        self.calls.append(("xoauth2", user))
+
+        return SimpleNamespace(
+            result="OK",
+            lines=[b"CAPABILITY IMAP4rev1 UIDPLUS MOVE", b"authenticated (Success)"],
+        )
 
     async def select(self, folder):
         self.calls.append(("select", folder))
@@ -138,6 +149,7 @@ class _FakeIMAP:
         return "OK", [b"ok"]
 
     async def logout(self):
+        self.calls.append(("logout",))
         return "OK", [b"bye"]
 
 
@@ -443,9 +455,69 @@ async def test_undo_expired_window_raises(db_path: Path) -> None:
         await undo_operation(op_id, db_path)
 
 
-async def test_undo_oauth2_agent_raises(db_path: Path) -> None:
-    """An OAuth2 agent (no stored password) cannot be undone yet."""
+# ---------------------------------------------------------------------------
+# OAuth2 agents (Gmail/Outlook XOAUTH2) — undo logs in the way execution does
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("op_type", "kwargs", "inverse"),
+    [
+        ("move", {}, ("uid", "move", "7", '"INBOX"')),
+        ("trash", {"folder_to": "[Gmail]/Trash"}, ("uid", "move", "7", '"INBOX"')),
+        ("flag", {"folder_to": None, "flags_add": ["\\Flagged"]},
+         ("uid", "store", "42", "-FLAGS", "(\\Flagged)")),
+    ],
+)
+async def test_undo_oauth2_agent_uses_xoauth2(
+    db_path: Path, op_type: str, kwargs: dict, inverse: tuple
+) -> None:
+    """An OAuth2 agent (no stored password) undoes via AUTHENTICATE XOAUTH2."""
+    agent_id = await _seed_agent(db_path, oauth2=True, with_password=False)
+    op_id = await _seed_executed_op(db_path, agent_id=agent_id, op_type=op_type, **kwargs)
+
+    fake = _FakeIMAP()
+    with patch("gateway.undo.aioimaplib.IMAP4_SSL", return_value=fake), patch(
+        "gateway.oauth2_tokens.get_access_token", return_value=("u@example.com", "tok")
+    ):
+        result = await undo_operation(op_id, db_path)
+
+    assert result["op_type"] == op_type
+    assert ("xoauth2", "u@example.com") in fake.calls
+    assert not any(c[0] == "login" for c in fake.calls)
+    assert inverse in fake.calls
+    assert await _status_and_reverted_rows(db_path, op_id) == ("reverted", 1)
+
+
+async def test_undo_oauth2_token_refresh_failure_moves_nothing(db_path: Path) -> None:
+    """A failed token refresh refuses the undo before any mailbox command."""
+    from gateway.oauth2_tokens import OAuth2Error
+
     agent_id = await _seed_agent(db_path, oauth2=True, with_password=False)
     op_id = await _seed_executed_op(db_path, agent_id=agent_id)
-    with pytest.raises(UndoError, match="OAuth2 agents are not yet supported"):
+
+    fake = _FakeIMAP()
+    with patch("gateway.undo.aioimaplib.IMAP4_SSL", return_value=fake), patch(
+        "gateway.oauth2_tokens.get_access_token",
+        side_effect=OAuth2Error("Google token refresh failed: HTTP 400 error='invalid_grant'"),
+    ), pytest.raises(UndoError, match="authentication failed while attempting undo"):
         await undo_operation(op_id, db_path)
+
+    assert not any(c[0] in ("select", "uid", "xoauth2") for c in fake.calls)
+    assert fake.calls[-1] == ("logout",)
+    assert await _status_and_reverted_rows(db_path, op_id) == ("executed", 0)
+
+
+async def test_undo_without_password_or_oauth2_refuses(db_path: Path) -> None:
+    """No stored password and no OAuth2 provider: fail closed, no LOGIN sent."""
+    agent_id = await _seed_agent(db_path, oauth2=False, with_password=False)
+    op_id = await _seed_executed_op(db_path, agent_id=agent_id)
+
+    fake = _FakeIMAP()
+    with patch("gateway.undo.aioimaplib.IMAP4_SSL", return_value=fake), pytest.raises(
+        UndoError, match="needs a password"
+    ):
+        await undo_operation(op_id, db_path)
+
+    assert not any(c[0] in ("login", "select", "uid") for c in fake.calls)
+    assert await _status_and_reverted_rows(db_path, op_id) == ("executed", 0)

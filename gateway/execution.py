@@ -184,6 +184,69 @@ async def resolve_imap_credentials(row: dict, db_path: Path) -> ImapCredentials:
     )
 
 
+async def authenticate_upstream_imap(
+    client: aioimaplib.IMAP4_SSL, creds: ImapCredentials, db_path: Path
+) -> None:
+    """Greet and authenticate a fresh upstream IMAP connection for one agent.
+
+    The one place an approved operation (``_execute_imap_upstream``) and its
+    undo (``gateway.undo``) log in upstream, so both support the same auth
+    methods:
+
+        creds.oauth2_provider set? ──yes──► fetch access token (refreshes if
+                │ no                         expired) → AUTHENTICATE XOAUTH2
+                ▼                            → seed the capability set
+        creds.password set? ──no──► refuse (fail closed, nothing sent)
+                │ yes
+                ▼
+        LOGIN user password
+
+    The caller owns the connection: it constructs ``client`` and logs out in
+    its own ``finally``, including when this raises. The Sent-folder APPEND
+    (``_save_to_sent_folder``) keeps its own best-effort login, because it
+    logs and skips on failure instead of raising.
+
+    Raises RuntimeError on any auth failure, before any mailbox command runs.
+    """
+    await client.wait_hello_from_server()
+    if creds.oauth2_provider:
+        # OAuth2 agent — use AUTHENTICATE XOAUTH2 instead of LOGIN.
+        from gateway.oauth2_tokens import OAuth2Error, get_access_token
+        if not creds.cred:
+            raise RuntimeError("IMAP OAuth2 auth needs a stored agent credential")
+        try:
+            _email, _access_token = await get_access_token(str(creds.cred["id"]), db_path)
+        except OAuth2Error as exc:
+            raise RuntimeError(f"IMAP OAuth2 token fetch failed: {exc}") from exc
+        response = await client.xoauth2(_email, _access_token)
+        if response.result != "OK":
+            raise RuntimeError(f"IMAP XOAUTH2 authentication failed: {response.lines}")
+        # aioimaplib's xoauth2() doesn't seed the capability set the way
+        # login() does (login() scans response.lines for CAPABILITY at
+        # aioimaplib line 469, then calls capability() explicitly). Without
+        # it, uid("move", ...) raises "server has not MOVE capability" even
+        # though Gmail advertises MOVE in the AUTHENTICATE response.
+        #
+        # Mirror login()'s inline parse first — Gmail always sends
+        # '* CAPABILITY ... MOVE ...' as part of the AUTHENTICATE response,
+        # so we can seed the set from that line and avoid a round trip.
+        for _line in response.lines:
+            if isinstance(_line, bytes) and b"CAPABILITY" in _line:
+                client.protocol.capabilities = client.protocol.capabilities.union(
+                    set(_line.decode().replace("CAPABILITY", "").strip().split())
+                )
+                break
+        if not client.protocol.capabilities:
+            # Fallback: no capability line in response — fetch explicitly.
+            await client.capability()
+        return
+    if not creds.password:
+        raise RuntimeError("IMAP LOGIN needs a password and none is stored for this agent")
+    status, data = await client.login(creds.user, creds.password)
+    if status != "OK":
+        raise RuntimeError(f"IMAP LOGIN failed: {data}")
+
+
 # ---------------------------------------------------------------------------
 # Sent-folder discovery
 # ---------------------------------------------------------------------------
@@ -475,39 +538,7 @@ async def _execute_imap_upstream(row: dict, db_path: Path) -> dict | None:
     result: dict | None = None
     client = aioimaplib.IMAP4_SSL(host=creds.host, port=creds.port)
     try:
-        await client.wait_hello_from_server()
-        if creds.oauth2_provider:
-            # OAuth2 agent — use AUTHENTICATE XOAUTH2 instead of LOGIN.
-            from gateway.oauth2_tokens import OAuth2Error, get_access_token
-            try:
-                _email, _access_token = await get_access_token(str(creds.cred["id"]), db_path)
-            except OAuth2Error as exc:
-                raise RuntimeError(f"IMAP OAuth2 token fetch failed: {exc}") from exc
-            response = await client.xoauth2(_email, _access_token)
-            if response.result != "OK":
-                raise RuntimeError(f"IMAP XOAUTH2 authentication failed: {response.lines}")
-            # aioimaplib's xoauth2() doesn't seed the capability set the way
-            # login() does (login() scans response.lines for CAPABILITY at
-            # aioimaplib line 469, then calls capability() explicitly). Without
-            # it, uid("move", ...) raises "server has not MOVE capability" even
-            # though Gmail advertises MOVE in the AUTHENTICATE response.
-            #
-            # Mirror login()'s inline parse first — Gmail always sends
-            # '* CAPABILITY ... MOVE ...' as part of the AUTHENTICATE response,
-            # so we can seed the set from that line and avoid a round trip.
-            for _line in response.lines:
-                if isinstance(_line, bytes) and b"CAPABILITY" in _line:
-                    client.protocol.capabilities = client.protocol.capabilities.union(
-                        set(_line.decode().replace("CAPABILITY", "").strip().split())
-                    )
-                    break
-            if not client.protocol.capabilities:
-                # Fallback: no capability line in response — fetch explicitly.
-                await client.capability()
-        else:
-            status, data = await client.login(creds.user, creds.password)
-            if status != "OK":
-                raise RuntimeError(f"IMAP LOGIN failed: {data}")
+        await authenticate_upstream_imap(client, creds, db_path)
 
         # Approved trash with a known Trash folder → UID MOVE there (#168).
         #
