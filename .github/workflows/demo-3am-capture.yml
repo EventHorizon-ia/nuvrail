@@ -1,0 +1,81 @@
+name: 3am demo (capture)
+
+# Films the 3am demo headlessly: the same live run as demo-3am-live.yml
+# (local GreenMail server, no human, no secrets), plus the web UI, with
+# Playwright clicking the real Reject button. Produces the MP4 (60-90 s), the
+# README GIF (< 5 MB) and 4 stills as an artifact. Nothing is committed by
+# this workflow; a maintainer reviews the artifact and commits it.
+#
+#   live_run.sh (DEMO_CAPTURE=1) ──► transcripts + scene-4-ui.webm (real Reject)
+#   capture.mjs terminal         ──► scenes 1-3, 5-6 from the real transcripts
+#   render.sh                    ──► out/3am-demo.mp4 + 3am-demo.gif + screen-*.png
+#
+# Footage must be captioned as a local test mail server (the scenes say so).
+on:
+  pull_request:
+    paths:
+      - "docs/assets/3am-demo/**"
+      - ".github/workflows/demo-3am-capture.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: "3am demo capture"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner context isn't available in job-level env, so set the
+      # output dirs here for every later step.
+      - name: Output dirs
+        run: |
+          echo "DEMO_ARTIFACT_DIR=$RUNNER_TEMP/3am-demo" >> "$GITHUB_ENV"
+          echo "DEMO_CAPTURE_DIR=$RUNNER_TEMP/3am-capture" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright (Chromium) + ffmpeg
+        working-directory: docs/assets/3am-demo/capture
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Provide a .env (README step)
+        run: cp .env.example .env
+
+      - name: Live run with the real Reject tap filmed
+        env:
+          DEMO_CAPTURE: "1"
+        run: docs/assets/3am-demo/live_run.sh
+
+      - name: Terminal scenes from the run's transcripts
+        run: node docs/assets/3am-demo/capture/capture.mjs terminal
+
+      - name: Cut MP4 + GIF
+        run: docs/assets/3am-demo/capture/render.sh
+
+      - name: Upload demo assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3am-demo-assets
+          path: ${{ runner.temp }}/3am-capture/out
+          if-no-files-found: error
+
+      # Raw scenes + transcripts, for debugging a bad cut.
+      - name: Upload raw scenes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3am-demo-raw
+          path: |
+            ${{ runner.temp }}/3am-capture/*.webm
+            ${{ runner.temp }}/3am-capture/*.png
+            ${{ runner.temp }}/3am-demo
+          if-no-files-found: warn

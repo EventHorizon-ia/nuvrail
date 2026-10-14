@@ -1,0 +1,9 @@
+{
+  "name": "nuvrail-3am-demo-capture",
+  "private": true,
+  "description": "Films the 3am demo headlessly (see capture.mjs). Not part of the product build.",
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.48.2"
+  }
+}
