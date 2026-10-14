@@ -1,0 +1,49 @@
+name: 3am demo (live run)
+
+# Runs the README's 3am demo end to end against a local GreenMail server: no
+# human, no real mailbox, no secrets. See docs/assets/3am-demo/live_run.sh for
+# the step diagram. This is the "reproduce it yourself" proof behind the demo
+# video: if the staging/EXPUNGE/reject claims stop being true, this goes red.
+#
+# No branch filter on pull_request, so it also runs on PRs stacked on a
+# feature branch. Path filter keeps it off unrelated changes.
+on:
+  pull_request:
+    paths:
+      - "docs/assets/3am-demo/**"
+      - ".github/workflows/demo-3am-live.yml"
+      - "gateway/**"
+      - "api/**"
+      - "scripts/manage_users.py"
+      - "Dockerfile.gateway"
+      - "docker-compose.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-run:
+    name: "3am demo live run"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Provide a .env (README step)
+        run: cp .env.example .env
+
+      - name: Live run (seed, agent, stage, reject, verify)
+        env:
+          DEMO_ARTIFACT_DIR: ${{ runner.temp }}/3am-demo
+        run: docs/assets/3am-demo/live_run.sh
+
+      # Transcript + server-side listings only; every credential is random,
+      # masked, and never written to these files.
+      - name: Upload transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3am-demo-live-run
+          path: ${{ runner.temp }}/3am-demo
+          if-no-files-found: warn

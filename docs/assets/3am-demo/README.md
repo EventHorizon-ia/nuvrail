@@ -56,6 +56,26 @@ because pointed straight at a mail server it really would delete the 38
 messages. `DEMO_ALLOW_ANY_SERVER=1` overrides that; only use it with a
 throwaway mailbox.
 
+## No mailbox? Run it live against a local test server
+
+`live_run.sh` runs steps 2-6 with no human and no real account. It starts a
+local in-memory IMAPS server (GreenMail, see `compose.live.yml`), seeds it,
+connects it to Nuvrail as an agent, runs `agent.py` through the proxy, rejects
+the staged operation through the same API the approval UI calls, and lists the
+mailbox from the server side before and after (`verify_mailbox.py`):
+
+```bash
+cp .env.example .env
+docs/assets/3am-demo/live_run.sh
+```
+
+The gateway verifies the test server's certificate as it would Gmail's; the
+script generates a throwaway CA per run and trusts it only inside the demo's
+gateway container (`SSL_CERT_FILE`). No product code changes. CI runs this on
+every change to the demo, the gateway or the API
+(`.github/workflows/demo-3am-live.yml`). Footage from it must be captioned as
+a **local test mail server**, not a real provider.
+
 ## Accuracy notes (for anyone recording or captioning this)
 
 - The staged reply is exactly `OK [STAGED] Operation queued — ID: op_…`.
