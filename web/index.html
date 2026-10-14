@@ -6,9 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111c27" />
     <title>Nuvrail</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- Fonts are self-hosted (web/public/fonts, @font-face in src/index.css)
+         so opening the UI makes no third-party request (#184). Keep this file
+         free of external origins; tests/web/test_no_third_party_assets.py
+         enforces it. -->
     <!-- Theme bootstrap is an external 'self' asset (not inline) so the web CSP
          can drop script-src 'unsafe-inline' (#63). Blocking <script> in <head>
          keeps the pre-paint timing. -->

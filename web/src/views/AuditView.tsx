@@ -6,10 +6,21 @@ import { fetchAuditLog, exportAuditLog, fetchAgents, undoOperation } from '../ap
 import type { AuditEntry } from '../types'
 import { toast } from 'sonner'
 
-// Op types the backend undo engine supports.
+// Op types the backend undo engine supports. Must equal
+// gateway.undo.UNDOABLE_OP_TYPES exactly; tests/web/test_audit_view_op_types.py
+// parses this literal and fails CI if the two drift (#178).
+// Archive is not an op_type: it is staged as op_type='move' with
+// intent_label='archive', so it is undoable via 'move'.
 const UNDOABLE_OP_TYPES = new Set([
-  'move', 'trash', 'archive', 'mark_read', 'mark_unread', 'star', 'unstar',
+  'move', 'trash', 'mark_read', 'mark_unread', 'flag', 'unflag',
 ])
+
+// Op types the gateway actually records (gateway/operation_parser.py plus
+// smtp_send from gateway/smtp_proxy.py). Filter on intent for archive/spam/etc.
+const OP_TYPE_FILTERS = [
+  'move', 'trash', 'copy', 'mark_read', 'mark_unread', 'flag', 'unflag',
+  'store', 'append', 'smtp_send',
+]
 
 const PAGE_SIZE = 20
 
@@ -400,8 +411,7 @@ export default function AuditView() {
           className="px-3 py-1.5 rounded-md bg-surface-hi text-sm text-fg-2 border border-edge hover:bg-edge"
         >
           <option value="">All op types</option>
-          {['move', 'trash', 'archive', 'copy', 'mark_read', 'mark_unread',
-            'star', 'unstar', 'append', 'smtp_send'].map(t => (
+          {OP_TYPE_FILTERS.map(t => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>

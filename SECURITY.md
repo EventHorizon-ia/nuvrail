@@ -56,7 +56,8 @@ you.
 
 ## Supported Versions
 
-Nuvrail is pre-1.0 (currently `0.1.0`) and moves fast. Security fixes are made
+Nuvrail is pre-1.0 (see the
+[latest release](https://github.com/agens-field/nuvrail/releases/latest)) and moves fast. Security fixes are made
 against the **latest release and `main`**; there are no long-term-support
 branches yet.
 

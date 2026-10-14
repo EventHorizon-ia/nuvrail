@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS staged_operations (
     executed_at     INTEGER,
     undo_expires_at INTEGER,
     scheduled_execute_at INTEGER,  -- cool-down deadline; the scheduler auto-executes a pending op once this passes (NULL = no deferral)
-    rejection_notified INTEGER NOT NULL DEFAULT 0,  -- 1 once SMTP 550 notice sent to agent
+    rejection_notified INTEGER NOT NULL DEFAULT 0,  -- 1 once SMTP 214 REJECTED notice sent to agent
     error           TEXT
 );
 

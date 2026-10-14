@@ -80,17 +80,28 @@ jobs:
       - name: Security scan (gitleaks)
         run: gitleaks detect --source . --no-git --config .gitleaks.toml --redact -v
 
-  # Validate the self-host docker-compose build (gateway + web) so a broken
-  # Dockerfile is caught on PRs. No secrets — values are only baked into the
-  # build image, never executed here.
+  # Build the self-host docker-compose stack (gateway + web) AND boot it the way
+  # the README's "Try it in 60 seconds" section tells a new user to, so a stack
+  # that builds but does not come up is caught on PRs, not by the first person
+  # who tries it. scripts/quickstart_smoke.sh has the step-by-step diagram.
+  # No secrets: .env is the stock .env.example, the account is throwaway, and
+  # the volume is deleted on exit (`down -v`).
+  #
+  # The job name stays "Self-host image build" because branch protection on
+  # main requires that exact check context; renaming it needs an admin to
+  # update the required checks in the same change.
   build:
     name: "Self-host image build"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Provide a .env (compose requires the env_file to exist)
+      - name: Provide a .env (README step; compose requires the env_file)
         run: cp .env.example .env
 
       - name: Build self-host images (docker compose build)
         run: docker compose build
+
+      - name: Boot-smoke the README quickstart (up, health, account, web, login, down)
+        run: scripts/quickstart_smoke.sh

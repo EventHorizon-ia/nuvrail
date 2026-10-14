@@ -94,6 +94,13 @@ _RCPT_TO_RE = re.compile(r"RCPT TO:\s*<([^>]*)>", re.IGNORECASE)
 # ---------------------------------------------------------------------------
 
 
+# Post-auth verbs forwarded upstream unchanged. MAIL, RCPT, DATA, QUIT, AUTH,
+# EHLO and HELO have their own branches; every other verb is refused (502).
+# Adding one here is a security decision: it must not be able to submit,
+# relay, or change the transport of a message.
+_SMTP_PASSTHROUGH_COMMANDS = frozenset({"NOOP", "RSET", "HELP", "VRFY"})
+
+
 async def _read_smtp_response(reader: asyncio.StreamReader) -> list[bytes]:
     """Read a complete (possibly multi-line) SMTP response.
 
@@ -850,7 +857,23 @@ async def handle_smtp_client(
                 break
 
             # ----------------------------------------------------------------
-            # Everything else (EHLO, HELO, NOOP, RSET, VRFY, etc.) — pass through
+            # Fail closed: only enumerated session verbs reach upstream.
+            # Anything else (BDAT from CHUNKING, ETRN, XCLIENT, STARTTLS,
+            # unknown extensions) is refused locally. BDAT in particular is a
+            # second way to submit a message that would skip DATA staging.
+            # ----------------------------------------------------------------
+            elif cmd not in _SMTP_PASSTHROUGH_COMMANDS:
+                client_writer.write(
+                    f"502 5.5.1 Nuvrail: {cmd or 'empty command'} is not"
+                    f" permitted for agents\r\n".encode()
+                )
+                await client_writer.drain()
+                logger.warning(
+                    "[%s] REJECTED SMTP command: %s", peer_str, redact_protocol_line(line)
+                )
+
+            # ----------------------------------------------------------------
+            # Session verbs (NOOP, RSET, HELP, VRFY) — pass through
             # ----------------------------------------------------------------
             else:
                 upstream_writer.write(line_bytes)

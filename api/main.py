@@ -18,6 +18,7 @@ Sub-milestone: 3.3 (auto-approval rules)
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -41,6 +42,26 @@ from gateway.scrubber import run_scrubber_loop
 from gateway.state_db import DB_PATH, init_db
 
 logger = logging.getLogger(__name__)
+
+# Distribution name in pyproject.toml. The version lives in exactly one place
+# (pyproject.toml [project].version); the release workflow checks it against
+# the tag and web/package.json, so the API must read it rather than repeat it.
+_DIST_NAME = "nuvrail-gateway"
+_UNKNOWN_VERSION = "0+unknown"
+
+
+def _package_version() -> str:
+    """Return the installed nuvrail-gateway version.
+
+    CI and the Docker image both ``pip install -e .``, so package metadata is
+    present there. A bare checkout run without installing has no metadata;
+    report a PEP 440 placeholder instead of a stale hardcoded number.
+    """
+    try:
+        return importlib.metadata.version(_DIST_NAME)
+    except importlib.metadata.PackageNotFoundError:
+        return _UNKNOWN_VERSION
+
 
 _EXPIRY_INTERVAL = float(os.environ.get("NUVRAIL_EXPIRY_INTERVAL_SECONDS", "3600"))
 _EXPIRY_INITIAL_DELAY = float(os.environ.get("NUVRAIL_EXPIRY_INITIAL_DELAY_SECONDS", "60"))
@@ -130,7 +151,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Nuvrail API shutdown — background loops stopped")
 
 
-app = FastAPI(title="Nuvrail Approval API", version="0.1.1", lifespan=lifespan)
+app = FastAPI(title="Nuvrail Approval API", version=_package_version(), lifespan=lifespan)
 
 # Rate limiting (slowapi) — attached before CORS so 429s get proper headers.
 # The limiter is stored on app.state so route decorators can reference it.

@@ -46,7 +46,7 @@ from dotenv import load_dotenv
 
 from gateway.agent_auth import decode_sasl_plain, verify_agent_login
 from gateway.batching import get_or_create_batch
-from gateway.command_router import classify
+from gateway.command_router import classify, filter_capabilities, nonsync_literal_size
 from gateway.credentials import fetch_credential
 from gateway.extensions import load_plugins
 from gateway.imap_parser import ParsedCommand, parse_line
@@ -503,6 +503,49 @@ async def _sync_upstream_line(
             logger.warning("[%s] Failed to sync FETCH line: %s", peer, exc)
 
 
+async def _discard_nonsync_literals(
+    client_reader: asyncio.StreamReader,
+    client_writer: asyncio.StreamWriter,
+    raw: str,
+    peer: str,
+) -> bool:
+    """Consume the non-synchronizing literal(s) a refused command carries.
+
+    Wire shape (RFC 7888) — the client does not wait for ``+``:
+
+        C: a1 REPLACE 4 INBOX {310+}\r\n     ← raw (already read)
+        C: <310 bytes>                        ← discarded here, never forwarded
+        C: \r\n  (or " more args {12+}\r\n" → loop)
+
+    Returns False when the connection should end: the client went away, or a
+    literal is larger than ``_MAX_APPEND_BYTES`` (refused with ``* BYE`` rather
+    than read, so a hostile size can't keep the proxy busy).
+    """
+    line = raw
+    while (size := nonsync_literal_size(line)) is not None:
+        if size > _MAX_APPEND_BYTES:
+            logger.warning(
+                "[%s] REJECTED non-sync literal of %d bytes (cap %d) — closing",
+                peer, size, _MAX_APPEND_BYTES,
+            )
+            with contextlib.suppress(ConnectionResetError, BrokenPipeError, OSError):
+                client_writer.write(b"* BYE Nuvrail: literal too large\r\n")
+                await client_writer.drain()
+            return False
+        try:
+            remaining = size
+            while remaining > 0:
+                chunk = await client_reader.readexactly(min(_READ_CHUNK, remaining))
+                remaining -= len(chunk)
+            nxt = await client_reader.readline()
+        except (asyncio.IncompleteReadError, ConnectionResetError, OSError):
+            return False
+        if not nxt:
+            return False
+        line = nxt.decode("utf-8", errors="replace").rstrip("\r\n")
+    return True
+
+
 async def _client_to_upstream(
     client_reader: asyncio.StreamReader,
     upstream_writer: asyncio.StreamWriter,
@@ -518,6 +561,10 @@ async def _client_to_upstream(
 
     Handles sync literals ({N} at end of line) by consuming the literal body
     from the client and responding with OK [STAGED] without forwarding.
+
+    Fails closed: a verb classify() does not know is answered locally with
+    ``NO [CANNOT]`` and never forwarded, and so is any command carrying a
+    non-synchronizing literal ({N+}/{N-}).
     """
     while True:
         try:
@@ -626,7 +673,48 @@ async def _client_to_upstream(
             logger.info("[%s] STAGED (literal APPEND): %s", peer, raw)
             continue
 
+        if nonsync_literal_size(raw) is not None:
+            # Non-synchronizing literal (RFC 7888). We strip LITERAL+/LITERAL-
+            # from the capabilities we relay, so a compliant client never sends
+            # one. Consume the bytes to stay in sync, then refuse the command.
+            if not await _discard_nonsync_literals(client_reader, client_writer, raw, peer):
+                break
+            try:
+                client_writer.write(
+                    f"{parsed.tag} NO [CANNOT] Nuvrail: non-synchronizing literals"
+                    f" are not supported, use {{N}}\r\n".encode()
+                )
+                await client_writer.drain()
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                break
+            # Log the verb only: the line may carry credentials (LOGIN) or data.
+            logger.warning("[%s] REJECTED (non-sync literal): %s %s", peer, parsed.tag, parsed.command)
+            continue
+
         action = classify(parsed)
+
+        if action == "rejected":
+            # Fail closed: never forward a verb we haven't classified. The
+            # agent gets a definite NO instead of an unapproved upstream write.
+            if not raw.strip():
+                continue  # blank line: nothing to answer
+            if parsed.command:
+                resp = (
+                    f"{parsed.tag} NO [CANNOT] Nuvrail: {parsed.command} is not"
+                    f" permitted for agents\r\n"
+                )
+            else:
+                resp = f"{parsed.tag} BAD Nuvrail: missing command\r\n"
+            try:
+                client_writer.write(resp.encode())
+                await client_writer.drain()
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                break
+            # Log the verb only: a post-auth LOGIN/AUTHENTICATE carries credentials.
+            logger.warning(
+                "[%s] REJECTED (unclassified verb): %s %s", peer, parsed.tag, parsed.command
+            )
+            continue
 
         if action == "read":
             # Track SELECT so the u2c pump knows which folder we're in.
@@ -643,6 +731,11 @@ async def _client_to_upstream(
             # the tagged OK for one of these commands.
             if parsed.command.upper() in ("SELECT", "EXAMINE", "NOOP", "FETCH"):
                 session["revert_trigger_tag"] = parsed.tag.upper()
+
+            # Filter the CAPABILITY response the u2c pump relays (see
+            # filter_capabilities) — only while this command is outstanding.
+            if parsed.command.upper() == "CAPABILITY":
+                session["capability_tag"] = parsed.tag.upper()
 
             # Track whether the current SEARCH is UID-mode so the u2c pump
             # can filter pending-move UIDs from the SEARCH response.
@@ -977,7 +1070,7 @@ async def _client_to_upstream(
                 break
             logger.info("[%s] STAGED: %s", peer, raw)
 
-        else:  # blocked
+        else:  # blocked (classify() returns exactly read/write/blocked/rejected)
             resp = f"{parsed.tag} OK Noted\r\n"
             try:
                 client_writer.write(resp.encode())
@@ -1029,6 +1122,17 @@ async def _upstream_to_client(
             line_bytes, buffer = buffer.split(b"\r\n", 1)
             line = line_bytes.decode("utf-8", errors="replace")
             line_with_crlf = line_bytes + b"\r\n"
+
+            # Strip capabilities the agent must not use (LITERAL+, COMPRESS, ...)
+            # from the response to the agent's own CAPABILITY command. Gated on
+            # the outstanding tag so a message body line is never rewritten.
+            cap_tag = session.get("capability_tag")
+            if cap_tag:
+                if line.upper().startswith("* CAPABILITY "):
+                    line = filter_capabilities(line)
+                    line_with_crlf = line.encode() + b"\r\n"
+                elif line.split(" ", 1)[0].upper() == cap_tag:
+                    session["capability_tag"] = None
 
             # Check if this is a tagged OK for a revert-trigger command.
             # If so, inject pending reverts BEFORE forwarding the tagged OK,
@@ -1599,6 +1703,10 @@ async def handle_client(
                 break
             if b"CAPABILITY" in line.upper():
                 _upstream_caps += " " + line.decode("utf-8", errors="replace")
+                line = (
+                    filter_capabilities(line.decode("utf-8", errors="replace").rstrip("\r\n"))
+                    .encode() + b"\r\n"
+                )
             # Untagged response (e.g. * CAPABILITY) — forward to client and keep reading.
             try:
                 client_writer.write(line)
@@ -1671,6 +1779,11 @@ async def handle_client(
             return
 
         else:
+            if b"CAPABILITY" in login_resp.upper():
+                login_resp = (
+                    filter_capabilities(login_resp.decode("utf-8", errors="replace").rstrip("\r\n"))
+                    .encode() + b"\r\n"
+                )
             client_writer.write(login_resp)
             await client_writer.drain()
     except (OSError, asyncio.IncompleteReadError) as exc:
@@ -1722,6 +1835,7 @@ async def handle_client(
         "agent_id": credential["id"],  # agent_credentials.id for staging
         "user_id": credential["user_id"],  # owning tenant; scopes the mailbox mirror (issue #73)
         "search_uid_mode": False,    # True if last SEARCH was UID SEARCH
+        "capability_tag": None,      # tag of an outstanding agent CAPABILITY (u2c filters its reply)
         # Provider normalization
         "provider_profile": provider_profile,
         "pending_copy_intent": None,  # PendingCopyIntent | None — held COPY awaiting STORE \Deleted
