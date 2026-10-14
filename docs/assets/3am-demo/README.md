@@ -92,7 +92,11 @@ render.sh (ffmpeg)           ──► 3am-demo.mp4 (60-90 s) · 3am-demo.gif (<
 ```
 
 The output is a workflow artifact (`3am-demo-assets`); the workflow commits
-nothing. Every scene carries the caption "local test mail server". To run it
+nothing. The committed copies (`3am-demo.mp4`, 66.7 s; `3am-demo.gif`,
+4.4 MB; `screens/`) come from capture run
+[38587189684](https://github.com/agens-field/nuvrail/actions/runs/38587189684)
+at `6a81a19` and were committed unchanged. If the UI changes, re-run the
+workflow and replace them. Every scene carries the caption "local test mail server". To run it
 yourself you need docker, node 20, ffmpeg and
 `npm ci && npx playwright install chromium` in `capture/`.
 
