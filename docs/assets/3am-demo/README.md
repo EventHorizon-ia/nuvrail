@@ -76,6 +76,26 @@ every change to the demo, the gateway or the API
 (`.github/workflows/demo-3am-live.yml`). Footage from it must be captioned as
 a **local test mail server**, not a real provider.
 
+## The video, generated in CI (stage 2)
+
+`capture/` films the live run instead of a person: the
+[`3am demo (capture)`](../../../.github/workflows/demo-3am-capture.yml)
+workflow runs `live_run.sh` with `DEMO_CAPTURE=1`, which also starts the web
+UI and lets Playwright click the **real Reject button** on the staged card
+(the script then re-reads the operation over the API and fails unless it is
+`rejected`). The terminal scenes replay that run's own transcripts verbatim.
+
+```
+live_run.sh (DEMO_CAPTURE=1) ──► transcripts + scene-4-ui.webm   (real Reject tap)
+capture.mjs terminal         ──► title, agent, listings, end card
+render.sh (ffmpeg)           ──► 3am-demo.mp4 (60-90 s) · 3am-demo.gif (< 5 MB) · 4 stills
+```
+
+The output is a workflow artifact (`3am-demo-assets`); the workflow commits
+nothing. Every scene carries the caption "local test mail server". To run it
+yourself you need docker, node 20, ffmpeg and
+`npm ci && npx playwright install chromium` in `capture/`.
+
 ## Accuracy notes (for anyone recording or captioning this)
 
 - The staged reply is exactly `OK [STAGED] Operation queued — ID: op_…`.

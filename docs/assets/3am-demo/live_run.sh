@@ -14,6 +14,8 @@
 #        assert: "38 messages", "OK [STAGED]", "OK Noted"
 #   6. verify_mailbox.py  (server side)       40 msgs, 0 \Deleted  ← held, not executed
 #   7. GET /api/v1/operations?status=pending  exactly 1 op; POST .../reject
+#        (DEMO_CAPTURE=1: capture/capture.mjs clicks Reject in the real UI
+#         instead, and the op is re-read over the API: must be 'rejected')
 #   8. verify_mailbox.py  (server side)       40 msgs, 0 \Deleted  ← rejected = untouched
 #   9. docker compose down -v                 (always, via trap)
 #
@@ -22,6 +24,8 @@
 # and 3993; stop any running Nuvrail stack first. `down -v` DELETES the
 # nuvrail_data volume. Every credential is random per run and never printed.
 # DEMO_ARTIFACT_DIR (optional) receives the agent transcript and listings.
+# DEMO_CAPTURE=1 (optional) also starts the web UI (host port 3000) and films
+# step 7 with Playwright into DEMO_CAPTURE_DIR; needs node + capture/'s deps.
 set -euo pipefail
 
 [ -f .env ] || { echo "error: no .env; run 'cp .env.example .env' first." >&2; exit 2; }
@@ -72,8 +76,12 @@ step "1. throwaway CA + server cert for 'mail' (this run only)"
 )
 echo "CA + cert ready (private keys exist only inside mail.p12, deleted on exit)"
 
-step "2. docker compose up gateway + mail"
-"${COMPOSE[@]}" up -d --build gateway mail
+CAPTURE="${DEMO_CAPTURE:-}"
+WEB="http://127.0.0.1:${NUVRAIL_HOST_WEB_PORT:-3000}"
+SERVICES=(gateway mail); [ -n "$CAPTURE" ] && SERVICES+=(web)
+
+step "2. docker compose up ${SERVICES[*]}"
+"${COMPOSE[@]}" up -d --build "${SERVICES[@]}"
 deadline=$(( $(date +%s) + 180 ))
 until curl -fsS "$API/health" >/dev/null 2>&1; do
   [ "$(date +%s)" -lt "$deadline" ] || fail "gateway /health not up after 180s"; sleep 2
@@ -90,6 +98,12 @@ do
   [ "$(date +%s)" -lt "$deadline" ] || fail "mail IMAPS :3993 not up (or cert does not verify) after 180s"; sleep 2
 done
 echo "gateway healthy; mail IMAPS up, cert verifies against the demo CA"
+if [ -n "$CAPTURE" ]; then
+  until curl -fsS "$WEB/" >/dev/null 2>&1; do
+    [ "$(date +%s)" -lt "$deadline" ] || fail "web UI $WEB not up after 180s"; sleep 2
+  done
+  echo "web UI up at $WEB"
+fi
 
 export SEED_IMAP_HOST=127.0.0.1 SEED_IMAP_PORT=3993 SEED_IMAP_USER=demo@demo.test \
        SEED_IMAP_PASSWORD="$DEMO_MAIL_PASSWORD"
@@ -127,7 +141,11 @@ grep -A1 '^agent> EXPUNGE' <<<"$out" | grep -q 'OK Noted' || fail "EXPUNGE reply
 step "6. server-side listing while the op is pending: nothing touched"
 python3 "$DEMO_DIR/verify_mailbox.py" --expect-total 40 --expect-deleted 0 | keep 2-pending.txt
 
-step "7. reject the staged operation (the 'Reject' tap, via the same API the UI uses)"
+if [ -n "$CAPTURE" ]; then
+  step "7. reject the staged operation: real Reject tap in the approval UI (filmed)"
+else
+  step "7. reject the staged operation (the 'Reject' tap, via the same API the UI uses)"
+fi
 pending="$(curl -fsS "$API/api/v1/operations?status=pending" "${AUTH[@]}")"
 op_id="$(python3 -c '
 import json, sys
@@ -137,7 +155,13 @@ for o in ops:
 if len(ops) != 1:
     sys.exit(f"want exactly 1 pending op, got {len(ops)}")
 print(ops[0]["id"])' <<<"$pending")" || fail "pending-operations check failed"
-status="$(curl -fsS -X POST "$API/api/v1/operations/$op_id/reject" "${AUTH[@]}" | field status)"
+if [ -n "$CAPTURE" ]; then
+  DEMO_WEB_URL="$WEB" DEMO_UI_TOKEN="$TOKEN" \
+    node "$DEMO_DIR/capture/capture.mjs" ui || fail "UI capture (Reject tap) failed"
+  status="$(curl -fsS "$API/api/v1/operations/$op_id" "${AUTH[@]}" | field status)"
+else
+  status="$(curl -fsS -X POST "$API/api/v1/operations/$op_id/reject" "${AUTH[@]}" | field status)"
+fi
 [ "$status" = "rejected" ] || fail "reject returned status '$status'"
 echo "rejected $op_id" | keep 3-rejected.txt
 
