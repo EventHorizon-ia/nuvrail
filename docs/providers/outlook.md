@@ -1,5 +1,7 @@
 # Outlook / Office 365 setup (OAuth2 via Azure AD)
 
+> **Status: built, not yet verified against a live account.** The code, unit tests and this guide exist, but nobody has connected a real Outlook / Microsoft 365 mailbox end to end yet. Outlook shares Gmail's XOAUTH2 wire path, so expect any rough edges in the Azure app setup below. If you try it, please [open an issue](https://github.com/agens-field/nuvrail/issues/new/choose) with the result. Status for every provider: [README → Provider status](../../README.md#provider-status).
+
 _User + operator guide for connecting a Microsoft Outlook.com or Office 365
 mailbox to Nuvrail. Microsoft deprecated IMAP/SMTP **basic auth** for Exchange
 Online in 2023, so OAuth2 (Azure AD, XOAUTH2) is the **only** supported path._

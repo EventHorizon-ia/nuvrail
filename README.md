@@ -667,7 +667,27 @@ Safety notes:
 
 ## Connecting an email account
 
-Nuvrail supports Gmail (OAuth2), Outlook / Office 365 (OAuth2), iCloud + standard IMAP/SMTP, and more providers coming. Each connected account gets a unique agent credential — the username and token you give to your AI agent.
+Nuvrail has setup flows for Gmail (OAuth2), Outlook / Office 365 (OAuth2), iCloud, and any standard IMAP/SMTP server. They are not all equally proven yet; see the status table below. Each connected account gets a unique agent credential — the username and token you give to your AI agent.
+
+### Provider status
+
+Not every provider has been run against a real account yet. Here is exactly
+where each one stands, so you know what you are trying.
+
+| Provider | Auth | Verified against a live account | Automated coverage |
+|---|---|---|---|
+| [Gmail / Google Workspace](docs/providers/gmail.md) | OAuth2 (XOAUTH2) | **Yes.** Google Workspace mailboxes on our own deployment, in use since 2026-09-10 | Unit tests: OAuth2 flow, token refresh, provider profile |
+| [Outlook / Microsoft 365](docs/providers/outlook.md) | OAuth2 (XOAUTH2) | **Not yet** | Unit tests: OAuth2 flow, token refresh, provider profile |
+| [iCloud Mail](docs/providers/icloud.md) | App-specific password | **Not yet** | Unit tests: provider profile, Sent/Trash folder mapping |
+| [Any standard IMAP/SMTP](docs/providers/generic-imap.md) | Username + password over TLS | Not against a third-party provider. CI runs a local GreenMail IMAPS server end to end | Unit tests, plus the [3am demo live run](.github/workflows/demo-3am-live.yml) in CI on every gateway/API change: IMAP read passthrough, a staged delete held, rejected, mailbox untouched |
+
+"Not yet" means the code and the setup guide exist and the unit tests pass,
+but nobody has connected a real mailbox of that kind end to end. Outlook uses
+the same XOAUTH2 wire path as Gmail, so the likeliest failures are in the
+Azure app registration, scopes or endpoints, not in the proxy. If you run
+Nuvrail against Outlook, iCloud or another provider, please
+[open an issue](https://github.com/agens-field/nuvrail/issues/new/choose)
+with what worked and what didn't. That is how a row moves to "Yes".
 
 ### Gmail via OAuth2 (recommended)
 

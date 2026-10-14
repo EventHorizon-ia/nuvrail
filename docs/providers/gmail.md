@@ -1,5 +1,7 @@
 # Gmail setup (OAuth2 via Google, XOAUTH2)
 
+> **Status:** verified against a live account. Google Workspace mailboxes have run through Nuvrail on our own deployment since 2026-09-10. Status for every provider: [README → Provider status](../../README.md#provider-status).
+
 _User + operator guide for connecting a **Gmail** or **Google Workspace**
 mailbox to Nuvrail. Google requires OAuth2 (XOAUTH2) for IMAP/SMTP — app
 passwords are unavailable to most accounts and basic auth is not supported, so
@@ -154,7 +156,7 @@ folder to avoid duplicate copies.
 
 ---
 
-_See also: [Outlook / Office 365 setup](../outlook-oauth2-setup.md) ·
+_See also: [Outlook / Office 365 setup](outlook.md) ·
 [iCloud Mail setup](icloud.md) ·
 [generic IMAP provider guide](../provider-imap-guide.md) ·
 [60-second quickstart](../../README.md)._

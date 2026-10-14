@@ -1,5 +1,7 @@
 # Connecting iCloud Mail to Nuvrail
 
+> **Status: built, not yet verified against a live account.** The iCloud profile, unit tests and this guide exist, but nobody has connected a real iCloud mailbox end to end yet. If you try it, please [open an issue](https://github.com/agens-field/nuvrail/issues/new/choose) with the result. Status for every provider: [README → Provider status](../../README.md#provider-status).
+
 This guide walks you through connecting an **iCloud Mail** account (`@icloud.com`,
 `@me.com`, or `@mac.com`) to Nuvrail so your AI agent can read and act on that
 mailbox through the approval proxy.
