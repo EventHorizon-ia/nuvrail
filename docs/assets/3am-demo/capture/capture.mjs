@@ -105,7 +105,7 @@ function terminalHtml(title, lines, { lineMs, highlight = [] }) {
   return `<!doctype html><meta charset="utf-8"><style>
     html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;
       font:20px/1.45 ui-monospace,"DejaVu Sans Mono",Menlo,monospace}
-    .bar{background:#161b22;color:#8b949e;padding:10px 18px;font-size:16px}
+    .bar{background:#161b22;color:#8b949e;padding:10px 18px;font-size:16px;white-space:pre}
     .t{padding:18px 24px;height:calc(100% - 90px);overflow:hidden}
     .l{white-space:pre;visibility:hidden}.l.on{visibility:visible}
     .hot{color:#3fb950;font-weight:bold}
@@ -148,11 +148,11 @@ async function terminal(browser) {
 
   await scene(browser, '1-title', (p) => play(p, cardHtml('3am. An agent is told to “clean up my inbox”.',
     ['It decides 38 old threads are resolved, flags them \\Deleted, and sends EXPUNGE.',
-     'It is connected through Nuvrail.']), 6000))
+     'It is connected through Nuvrail.']), 8000))
 
   await scene(browser, '2-agent', async (p) => {
     await play(p, terminalHtml('$ python3 agent.py      # IMAP via Nuvrail, localhost:10143',
-      agent, { lineMs: 1400, highlight: ['OK [STAGED]', 'OK Noted'] }), 9000)
+      agent, { lineMs: 1400, highlight: ['OK [STAGED]', 'OK Noted'] }), 11000)
     await shot(p, '1-agent-terminal')
   })
 
@@ -166,7 +166,7 @@ async function terminal(browser) {
 
   await scene(browser, '6-end', (p) => play(p, cardHtml('Rejected. All 40 messages are still there.',
     ['The delete was staged for a human. The EXPUNGE was answered locally and never sent.',
-     CAPTION, 'Reproduce it: github.com/agens-field/nuvrail · docs/assets/3am-demo']), 6000))
+     CAPTION, 'Reproduce it: github.com/agens-field/nuvrail · docs/assets/3am-demo']), 8000))
 }
 
 const mode = process.argv[2]
