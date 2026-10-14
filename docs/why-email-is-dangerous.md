@@ -107,6 +107,17 @@ the model required. It intercepts every command and splits them by consequence:
   message — and that waits for your yes. Even after you approve, the gateway only
   sets the flag; it never expunges.
 
+Here is that, end to end. An agent told to "clean up my inbox" flags 38 messages
+`\Deleted` and sends `EXPUNGE`. The flagging is staged (`OK [STAGED]`), the `EXPUNGE`
+is answered `OK Noted` and never forwarded, and one tap on **Reject** leaves the
+mailbox untouched:
+
+![Demo: an AI agent's bulk delete is staged by Nuvrail and rejected with one tap; the mailbox is untouched.](assets/3am-demo/3am-demo.gif)
+
+*Recorded in CI against a local test mail server, with a real click on the Reject
+button. The "agent" is a short script so you can reproduce it; any IMAP client
+behaves the same through the proxy. [Reproduce it yourself](assets/3am-demo/README.md).*
+
 This inverts the trust model. The agent no longer needs to be trusted with your
 identity and your history; it needs to be trusted only to *propose*. The
 consequential half — send, move, delete — becomes a decision a human makes with full

@@ -2,6 +2,15 @@
 
 **The approval layer between AI agents and your inbox.**
 
+<p align="center">
+  <img src="docs/assets/3am-demo/3am-demo.gif" width="800" alt="Demo: an AI agent's bulk delete is staged by Nuvrail and rejected with one tap; the mailbox is untouched.">
+</p>
+
+<p align="center"><em>An agent tries to delete 38 emails at 3am. Nothing happens until a human says yes.</em><br>
+<sub>The agent's <code>EXPUNGE</code> gets <code>OK Noted</code> and is never forwarded; the staged delete is rejected with one tap.
+Recorded in CI against a local test mail server; the "agent" is a short script, and any IMAP client behaves the same through the proxy.
+<a href="docs/assets/3am-demo/README.md">Reproduce it yourself</a> · <a href="docs/assets/3am-demo/3am-demo.mp4">MP4 (67 s)</a></sub></p>
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Self-host](https://img.shields.io/badge/self--host-docker%20compose-2496ED?logo=docker&logoColor=white)](#-try-it-in-60-seconds-local)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
