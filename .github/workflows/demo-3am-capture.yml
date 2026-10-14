@@ -26,11 +26,15 @@ jobs:
     name: "3am demo capture"
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      DEMO_ARTIFACT_DIR: ${{ runner.temp }}/3am-demo
-      DEMO_CAPTURE_DIR: ${{ runner.temp }}/3am-capture
     steps:
       - uses: actions/checkout@v4
+
+      # The runner context isn't available in job-level env, so set the
+      # output dirs here for every later step.
+      - name: Output dirs
+        run: |
+          echo "DEMO_ARTIFACT_DIR=$RUNNER_TEMP/3am-demo" >> "$GITHUB_ENV"
+          echo "DEMO_CAPTURE_DIR=$RUNNER_TEMP/3am-capture" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
