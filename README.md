@@ -2,6 +2,15 @@
 
 **The approval layer between AI agents and your inbox.**
 
+<p align="center">
+  <img src="docs/assets/3am-demo/3am-demo.gif" width="800" alt="Demo: an AI agent's bulk delete is staged by Nuvrail and rejected with one tap; the mailbox is untouched.">
+</p>
+
+<p align="center"><em>An agent tries to delete 38 emails at 3am. Nothing happens until a human says yes.</em><br>
+<sub>The agent's <code>EXPUNGE</code> gets <code>OK Noted</code> and is never forwarded; the staged delete is rejected with one tap.
+Recorded in CI against a local test mail server; the "agent" is a short script, and any IMAP client behaves the same through the proxy.
+<a href="docs/assets/3am-demo/README.md">Reproduce it yourself</a> · <a href="docs/assets/3am-demo/3am-demo.mp4">MP4 (67 s)</a></sub></p>
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Self-host](https://img.shields.io/badge/self--host-docker%20compose-2496ED?logo=docker&logoColor=white)](#-try-it-in-60-seconds-local)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -658,7 +667,27 @@ Safety notes:
 
 ## Connecting an email account
 
-Nuvrail supports Gmail (OAuth2), Outlook / Office 365 (OAuth2), iCloud + standard IMAP/SMTP, and more providers coming. Each connected account gets a unique agent credential — the username and token you give to your AI agent.
+Nuvrail has setup flows for Gmail (OAuth2), Outlook / Office 365 (OAuth2), iCloud, and any standard IMAP/SMTP server. They are not all equally proven yet; see the status table below. Each connected account gets a unique agent credential — the username and token you give to your AI agent.
+
+### Provider status
+
+Not every provider has been run against a real account yet. Here is exactly
+where each one stands, so you know what you are trying.
+
+| Provider | Auth | Verified against a live account | Automated coverage |
+|---|---|---|---|
+| [Gmail / Google Workspace](docs/providers/gmail.md) | OAuth2 (XOAUTH2) | **Yes.** Google Workspace mailboxes on our own deployment, in use since 2026-09-10 | Unit tests: OAuth2 flow, token refresh, provider profile |
+| [Outlook / Microsoft 365](docs/providers/outlook.md) | OAuth2 (XOAUTH2) | **Not yet** | Unit tests: OAuth2 flow, token refresh, provider profile |
+| [iCloud Mail](docs/providers/icloud.md) | App-specific password | **Not yet** | Unit tests: provider profile, Sent/Trash folder mapping |
+| [Any standard IMAP/SMTP](docs/providers/generic-imap.md) | Username + password over TLS | Not against a third-party provider. CI runs a local GreenMail IMAPS server end to end | Unit tests, plus the [3am demo live run](.github/workflows/demo-3am-live.yml) in CI on every gateway/API change: IMAP read passthrough, a staged delete held, rejected, mailbox untouched |
+
+"Not yet" means the code and the setup guide exist and the unit tests pass,
+but nobody has connected a real mailbox of that kind end to end. Outlook uses
+the same XOAUTH2 wire path as Gmail, so the likeliest failures are in the
+Azure app registration, scopes or endpoints, not in the proxy. If you run
+Nuvrail against Outlook, iCloud or another provider, please
+[open an issue](https://github.com/agens-field/nuvrail/issues/new/choose)
+with what worked and what didn't. That is how a row moves to "Yes".
 
 ### Gmail via OAuth2 (recommended)
 

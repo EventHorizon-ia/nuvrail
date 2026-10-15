@@ -67,3 +67,4 @@ positioning-audit.md
 user-feedback-channel.md
 
 # Note: .github/ is tracked — CI workflows live in .github/workflows/
+docs/assets/3am-demo/capture/node_modules/
