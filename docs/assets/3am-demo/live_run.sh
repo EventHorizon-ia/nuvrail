@@ -114,7 +114,7 @@ python3 "$DEMO_DIR/verify_mailbox.py" --expect-total 40 --expect-deleted 0 | kee
 
 step "4. create the owner account and connect the mailbox as an agent"
 "${COMPOSE[@]}" exec -T gateway python3 scripts/manage_users.py create \
-  "$USER_EMAIL" --name "Demo owner" --password "$USER_PASSWORD" >/dev/null \
+  "$USER_EMAIL" --name "Demo owner" --password="$USER_PASSWORD" >/dev/null \
   || fail "manage_users.py create failed"
 json() { python3 -c "import json,sys; print(json.dumps(dict(zip(sys.argv[1::2], sys.argv[2::2]))))" "$@"; }
 field() { python3 -c "import json,sys; print(json.loads(sys.stdin.read())[sys.argv[1]])" "$1"; }
