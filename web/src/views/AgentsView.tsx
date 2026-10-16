@@ -212,6 +212,7 @@ function AddAgentModal({ onCreated, onClose }: { onCreated: () => void; onClose:
       return 'Wrong username or password.'
     }
     if (message.includes('imap_connection_failed')) return 'Could not reach the IMAP server. Check the host and IMAP port.'
+    if (message.includes('imap_tls_verify_failed')) return 'The mail server\'s TLS certificate could not be verified. Check the IMAP host name.'
     if (message.includes('imap_ssl_error')) return 'SSL/TLS error. Check that you are using the correct IMAP SSL port.'
     if (message.includes('imap_timeout')) return 'Connection timed out while verifying. Please try again.'
     return message

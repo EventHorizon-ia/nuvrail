@@ -93,7 +93,17 @@ def _verify_imap_connection_sync(
 ) -> None:
     client: imaplib.IMAP4_SSL | None = None
     try:
-        client = imaplib.IMAP4_SSL(upstream_host, upstream_imap_port, timeout=10)
+        # Verify the upstream certificate and hostname. Without an explicit
+        # context, stdlib IMAP4_SSL skips both, and this probe sends the
+        # user's real mailbox password. create_default_context() honours
+        # SSL_CERT_FILE / SSL_CERT_DIR, so self-hosters with a private CA
+        # point those at their CA bundle instead of turning verification off.
+        client = imaplib.IMAP4_SSL(
+            upstream_host,
+            upstream_imap_port,
+            ssl_context=ssl.create_default_context(),
+            timeout=10,
+        )
         client.login(upstream_user, upstream_password)
         status_, _ = client.select("INBOX")
         if status_.upper() != "OK":
@@ -124,6 +134,14 @@ async def _verify_imap_connection(
     except TimeoutError as exc:
         raise ImapValidationError(
             "imap_timeout", "Timed out while verifying IMAP connection (10s limit)."
+        ) from exc
+    except ssl.SSLCertVerificationError as exc:
+        # Must precede ssl.SSLError (its parent). A bad certificate is not a
+        # wrong password and not a wrong port; say what actually failed.
+        raise ImapValidationError(
+            "imap_tls_verify_failed",
+            f"TLS certificate verification failed for {upstream_host}. "
+            "If this server uses a private CA, set SSL_CERT_FILE to its CA bundle.",
         ) from exc
     except ssl.SSLError as exc:
         raise ImapValidationError(

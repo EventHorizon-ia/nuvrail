@@ -12,6 +12,11 @@ heading format exact and add new work under `[Unreleased]`.
 
 ## [Unreleased]
 
+### Security
+- The upstream login check when adding an agent with a password now verifies
+  the IMAP server's TLS certificate and hostname. A certificate failure is
+  reported as such (`imap_tls_verify_failed`); private CAs work via `SSL_CERT_FILE`.
+
 ## [0.1.2] - 2026-10-09
 
 Security patch. The IMAP and SMTP proxies now fail closed on commands they do
