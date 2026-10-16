@@ -98,11 +98,13 @@ echo "smtp: $smtp"
 case "$smtp" in "220"*) ;; *) fail "unexpected SMTP greeting: $smtp" ;; esac
 
 step "4. create the first account with scripts/manage_users.py (closed signup)"
-# README form prompts for the password; -T + --password is the non-interactive
-# equivalent. The bearer token it prints is for a throwaway DB, but keep it out
-# of the CI log anyway.
+# README form prompts for the password; -T + --password=VALUE is the
+# non-interactive equivalent. Keep the `=` form: token_urlsafe can start with
+# '-', and argparse reads `--password -abc` as a missing value plus a new flag
+# (nuvrail#191; tests/test_manage_users_cli.py pins it). The bearer token it
+# prints is for a throwaway DB, but keep it out of the CI log anyway.
 docker compose exec -T gateway python3 scripts/manage_users.py create \
-  "$SMOKE_EMAIL" --name "Smoke" --password "$SMOKE_PASSWORD" >/dev/null \
+  "$SMOKE_EMAIL" --name "Smoke" --password="$SMOKE_PASSWORD" >/dev/null \
   || fail "manage_users.py create exited non-zero"
 docker compose exec -T gateway python3 scripts/manage_users.py list | grep -q "$SMOKE_EMAIL" \
   || fail "created account not listed by manage_users.py list"
