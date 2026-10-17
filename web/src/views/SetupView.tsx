@@ -197,6 +197,7 @@ function ImapForm({
   function mapError(msg: string): string {
     if (msg.includes('imap_auth_failed')) return 'Wrong password — use an app-specific password, not your account password.'
     if (msg.includes('imap_connection_failed')) return 'Could not reach the IMAP server. Check the host and port.'
+    if (msg.includes('imap_tls_verify_failed')) return 'The mail server\'s TLS certificate could not be verified. Check the IMAP host name.'
     if (msg.includes('imap_ssl_error')) return 'SSL error — check that you are using the correct IMAP SSL port.'
     return msg
   }
