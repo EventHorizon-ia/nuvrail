@@ -3,7 +3,7 @@ Undo of approved+executed operations — the inverse of gateway.execution.
 
 Reverses an executed IMAP operation within the undo window (default 24h).
 Lives next to the forward executor (gateway.execution) and shares its
-credential-resolution and JSON-field helpers, so the forward and inverse
+credential-resolution, upstream-login and JSON-field helpers, so the forward and inverse
 mailbox-mutating commands sit side by side in one layer.
 
 Data flow:
@@ -19,6 +19,9 @@ Data flow:
        │   'executed' audit row; missing → refuse (never guess a UID)
        │
        ├─ resolve_imap_credentials() (shared with the forward executor)
+       │
+       ├─ authenticate_upstream_imap() (shared with the forward executor:
+       │   XOAUTH2 for OAuth2 agents, LOGIN otherwise)
        │
        ├─ execute the inverse IMAP command
        │
@@ -65,6 +68,8 @@ from aioimaplib import quoted as imap_quoted
 
 from gateway.audit import record_audit_event
 from gateway.execution import (
+    ImapCredentials,
+    authenticate_upstream_imap,
     parse_copyuid,
     parse_uidvalidity,
     resolve_imap_credentials,
@@ -201,14 +206,6 @@ async def undo_operation(operation_id: str, db_path: Path) -> dict[str, Any]:
             "IMAP env vars are set."
         ) from exc
 
-    if not creds.password:
-        # OAuth2 agents (no stored password) and env fallback without a
-        # password cannot open the fresh password-auth connection undo needs.
-        raise UndoError(
-            "OAuth2 agents are not yet supported for undo — "
-            "undo requires password auth to open a fresh IMAP connection."
-        )
-
     # --- Deserialize fields ----------------------------------------------
     folder_from = row.get("folder_from") or "INBOX"
     message_ids = decode_json_list(row.get("message_ids"))
@@ -226,11 +223,8 @@ async def undo_operation(operation_id: str, db_path: Path) -> dict[str, Any]:
         dest_uidvalidity=dest_uidvalidity,
         flags_add=flags_add,
         flags_remove=flags_remove,
-        imap_host=creds.host,
-        imap_port=creds.port,
-        imap_user=creds.user,
-        imap_pass=creds.password,
-        operation_id=operation_id,
+        creds=creds,
+        db_path=db_path,
     )
 
     # --- Mark reverted in DB ---------------------------------------------
@@ -262,19 +256,19 @@ async def _execute_undo_imap(
     dest_uidvalidity: int | None,
     flags_add: list[str],
     flags_remove: list[str],
-    imap_host: str,
-    imap_port: int,
-    imap_user: str,
-    imap_pass: str,
-    operation_id: str,
+    creds: ImapCredentials,
+    db_path: Path,
 ) -> str:
     """Execute the inverse IMAP command. Returns a human-readable description."""
-    client = aioimaplib.IMAP4_SSL(host=imap_host, port=imap_port)
+    client = aioimaplib.IMAP4_SSL(host=creds.host, port=creds.port)
     try:
-        await client.wait_hello_from_server()
-        status, data = await client.login(imap_user, imap_pass)
-        if status != "OK":
-            raise UndoError(f"IMAP LOGIN failed while attempting undo: {data}")
+        try:
+            # Same login as the forward executor: XOAUTH2 for OAuth2 agents,
+            # LOGIN otherwise. Fails before any mailbox command, so a failed
+            # token refresh leaves the operation 'executed' and nothing moved.
+            await authenticate_upstream_imap(client, creds, db_path)
+        except RuntimeError as exc:
+            raise UndoError(f"IMAP authentication failed while attempting undo: {exc}") from exc
 
         if op_type in MOVE_OP_TYPES:
             # Original: UID MOVE folder_from → folder_to; the server assigned

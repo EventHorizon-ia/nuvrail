@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -17,7 +18,9 @@ import pytest
 from gateway.credentials import encrypt_credential
 from gateway.execution import (
     ExecutionError,
+    ImapCredentials,
     _execute_imap_upstream,
+    authenticate_upstream_imap,
     execute_operation,
     parse_copyuid,
     parse_uidvalidity,
@@ -484,3 +487,150 @@ async def test_unknown_op_type_fails_closed(db_path: Path) -> None:
         events = [r["event"] for r in await cur.fetchall()]
     assert "execution_failed" in events
     assert "executed" not in events
+
+
+# ---------------------------------------------------------------------------
+# authenticate_upstream_imap — the one upstream login, shared with undo
+# ---------------------------------------------------------------------------
+
+
+class _AuthFakeIMAP:
+    """Records the auth calls; ``xoauth2_lines`` is the AUTHENTICATE reply."""
+
+    def __init__(self, *, xoauth2_result: str = "OK", xoauth2_lines: list | None = None) -> None:
+        self.calls: list[tuple] = []
+        self._xoauth2_result = xoauth2_result
+        self._xoauth2_lines = (
+            xoauth2_lines if xoauth2_lines is not None
+            else [b"CAPABILITY IMAP4rev1 UIDPLUS MOVE", b"u@example.com authenticated (Success)"]
+        )
+        self.protocol = SimpleNamespace(capabilities=set())
+
+    async def wait_hello_from_server(self) -> None:
+        self.calls.append(("hello",))
+
+    async def login(self, user, password):
+        self.calls.append(("login", user))
+        return "OK", [b"ok"]
+
+    async def xoauth2(self, user, token):
+        self.calls.append(("xoauth2", user, token))
+
+        return SimpleNamespace(result=self._xoauth2_result, lines=self._xoauth2_lines)
+
+    async def capability(self):
+        self.calls.append(("capability",))
+        self.protocol.capabilities = {"IMAP4rev1", "MOVE"}
+        return "OK", [b"ok"]
+
+
+def _creds(*, oauth2: bool, password: str | None) -> ImapCredentials:
+    return ImapCredentials(
+        host="imap.example.com", port=993, user="u@example.com", password=password,
+        oauth2_provider="google" if oauth2 else None,
+        cred={"id": 9} if oauth2 or password else None,
+    )
+
+
+async def test_auth_password_agent_uses_login(db_path: Path) -> None:
+    fake = _AuthFakeIMAP()
+    await authenticate_upstream_imap(fake, _creds(oauth2=False, password="pw"), db_path)
+    assert fake.calls == [("hello",), ("login", "u@example.com")]
+
+
+async def test_auth_oauth2_agent_uses_xoauth2_and_seeds_capabilities(db_path: Path) -> None:
+    fake = _AuthFakeIMAP()
+    with patch(
+        "gateway.oauth2_tokens.get_access_token", return_value=("u@example.com", "tok")
+    ) as get_token:
+        await authenticate_upstream_imap(fake, _creds(oauth2=True, password=None), db_path)
+    get_token.assert_awaited_once_with("9", db_path)
+    assert fake.calls == [("hello",), ("xoauth2", "u@example.com", "tok")]
+    # Seeded from the AUTHENTICATE reply, so UID MOVE is allowed without a round trip.
+    assert "MOVE" in fake.protocol.capabilities
+
+
+async def test_auth_oauth2_without_capability_line_fetches_it(db_path: Path) -> None:
+    fake = _AuthFakeIMAP(xoauth2_lines=[b"authenticated (Success)"])
+    with patch("gateway.oauth2_tokens.get_access_token", return_value=("u@example.com", "t")):
+        await authenticate_upstream_imap(fake, _creds(oauth2=True, password=None), db_path)
+    assert fake.calls[-1] == ("capability",)
+    assert "MOVE" in fake.protocol.capabilities
+
+
+async def test_auth_oauth2_token_failure_raises_before_authenticate(db_path: Path) -> None:
+    from gateway.oauth2_tokens import OAuth2Error
+
+    fake = _AuthFakeIMAP()
+    with patch(
+        "gateway.oauth2_tokens.get_access_token",
+        side_effect=OAuth2Error("Google token refresh failed: HTTP 400 error='invalid_grant'"),
+    ), pytest.raises(RuntimeError, match="OAuth2 token fetch failed"):
+        await authenticate_upstream_imap(fake, _creds(oauth2=True, password=None), db_path)
+    assert [c[0] for c in fake.calls] == ["hello"]
+
+
+async def test_auth_oauth2_rejected_raises(db_path: Path) -> None:
+    fake = _AuthFakeIMAP(xoauth2_result="NO", xoauth2_lines=[b"Invalid credentials"])
+    with patch(
+        "gateway.oauth2_tokens.get_access_token", return_value=("u@example.com", "t")
+    ), pytest.raises(RuntimeError, match="XOAUTH2 authentication failed"):
+        await authenticate_upstream_imap(fake, _creds(oauth2=True, password=None), db_path)
+
+
+async def test_auth_without_password_or_oauth2_fails_closed(db_path: Path) -> None:
+    """No password and no OAuth2 provider: refuse without sending LOGIN."""
+    fake = _AuthFakeIMAP()
+    with pytest.raises(RuntimeError, match="needs a password"):
+        await authenticate_upstream_imap(fake, _creds(oauth2=False, password=""), db_path)
+    assert ("login", "u@example.com") not in fake.calls
+
+
+async def test_execute_oauth2_agent_moves_via_xoauth2(db_path: Path) -> None:
+    """The forward executor still authenticates OAuth2 agents through the helper."""
+    async with get_db(db_path) as db:
+        await db.execute(
+            """INSERT INTO users (id, email, display_name, hashed_password, created_at)
+               VALUES (1, 'o@example.com', 'T', 'x', 0)"""
+        )
+        cur = await db.execute(
+            """INSERT INTO agent_credentials
+               (user_id, label, agent_username, hashed_token,
+                upstream_host, upstream_imap_port, upstream_smtp_port,
+                upstream_user, upstream_password, oauth2_provider, created_at)
+               VALUES (1, 'l', 'nuvrail_o', 'x', 'imap.gmail.com', 993, 587,
+                       'o@example.com', NULL, 'google', 0)"""
+        )
+        await db.commit()
+        agent_id = int(cur.lastrowid)
+
+    class _MoveFake(_AuthFakeIMAP):
+        def has_capability(self, cap):
+            return cap in self.protocol.capabilities
+
+        async def select(self, folder):
+            self.calls.append(("select", folder))
+            return "OK", [b"OK [UIDVALIDITY 77] ok"]
+
+        async def uid(self, *args):
+            self.calls.append(("uid", *args))
+            return "OK", [b"OK [COPYUID 77 42 9] Moved."]
+
+        async def logout(self):
+            self.calls.append(("logout",))
+            return "OK", [b"bye"]
+
+    fake = _MoveFake()
+    row = {
+        "id": "op_oauth", "agent_id": agent_id, "op_type": "move",
+        "folder_from": "INBOX", "folder_to": "Archive", "message_ids": '["42"]',
+    }
+    with patch("gateway.execution.aioimaplib.IMAP4_SSL", return_value=fake), patch(
+        "gateway.oauth2_tokens.get_access_token", return_value=("o@example.com", "tok")
+    ):
+        result = await _execute_imap_upstream(row, db_path)
+
+    assert ("xoauth2", "o@example.com", "tok") in fake.calls
+    assert not any(c[0] == "login" for c in fake.calls)
+    assert result == {"dest_uidvalidity": 77, "dest_uids": "9"}
+    assert fake.calls[-1] == ("logout",)
