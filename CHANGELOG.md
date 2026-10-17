@@ -12,6 +12,14 @@ heading format exact and add new work under `[Unreleased]`.
 
 ## [Unreleased]
 
+### Fixed
+- Undo now works for OAuth-connected accounts (Gmail and Outlook via XOAUTH2).
+  Before this, undo refused any account without a stored password, because it
+  opened its own password-only IMAP connection; that ruled out Gmail OAuth,
+  the most common setup. Undo now logs in through the same code the gateway
+  uses to carry out an approved operation. If the access-token refresh fails,
+  undo refuses before touching the mailbox and the operation stays `executed`.
+
 ## [0.1.2] - 2026-10-09
 
 Security patch. The IMAP and SMTP proxies now fail closed on commands they do

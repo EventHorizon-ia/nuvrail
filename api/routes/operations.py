@@ -529,7 +529,8 @@ async def undo_op(
 
     Reverses the IMAP command that was applied when the operation was approved.
     Only operations with status 'executed' and op_type in the undoable set
-    (move, trash, archive, mark_read, mark_unread, star, unstar) can be undone.
+    (move, trash, mark_read, mark_unread, flag, unflag) can be undone, for
+    password and OAuth2 (XOAUTH2) agents alike.
     The undo window defaults to 24h and is configurable via UNDO_WINDOW_HOURS.
     """
     # Tenant isolation: only the owning user may undo their own operation.
