@@ -1,6 +1,6 @@
 # Connecting a generic IMAP/SMTP provider to Nuvrail
 
-> **Status:** CI runs this code path end to end on every gateway/API change against a local GreenMail IMAPS server (the [3am demo live run](../../.github/workflows/demo-3am-live.yml)). It has not been verified against a specific third-party provider. Status for every provider: [README → Provider status](../../README.md#provider-status).
+> **Status:** CI runs this code path end to end on every gateway/API change against a local GreenMail IMAPS server (the [3am demo live run](../../.github/workflows/demo-3am-live.yml)). It is also verified against a live third-party provider: MXRoute (IMAP + SMTP), in use on our own deployment since July 2026. Status for every provider: [README → Provider status](../../README.md#provider-status).
 
 This guide walks you through connecting **any standard IMAP/SMTP mailbox** to
 Nuvrail — a self-hosted mail server, a small business host, a privacy provider

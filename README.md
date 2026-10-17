@@ -679,7 +679,7 @@ where each one stands, so you know what you are trying.
 | [Gmail / Google Workspace](docs/providers/gmail.md) | OAuth2 (XOAUTH2) | **Yes.** Google Workspace mailboxes on our own deployment, in use since 2026-09-10 | Unit tests: OAuth2 flow, token refresh, provider profile |
 | [Outlook / Microsoft 365](docs/providers/outlook.md) | OAuth2 (XOAUTH2) | **Not yet** | Unit tests: OAuth2 flow, token refresh, provider profile |
 | [iCloud Mail](docs/providers/icloud.md) | App-specific password | **Not yet** | Unit tests: provider profile, Sent/Trash folder mapping |
-| [Any standard IMAP/SMTP](docs/providers/generic-imap.md) | Username + password over TLS | Not against a third-party provider. CI runs a local GreenMail IMAPS server end to end | Unit tests, plus the [3am demo live run](.github/workflows/demo-3am-live.yml) in CI on every gateway/API change: IMAP read passthrough, a staged delete held, rejected, mailbox untouched |
+| [Any standard IMAP/SMTP](docs/providers/generic-imap.md) | Username + password over TLS | **Yes.** MXRoute IMAP + SMTP on our own deployment, in use since July 2026. CI also runs a local GreenMail IMAPS server end to end | Unit tests, plus the [3am demo live run](.github/workflows/demo-3am-live.yml) in CI on every gateway/API change: IMAP read passthrough, a staged delete held, rejected, mailbox untouched |
 
 "Not yet" means the code and the setup guide exist and the unit tests pass,
 but nobody has connected a real mailbox of that kind end to end. Outlook uses
