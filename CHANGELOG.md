@@ -12,10 +12,24 @@ heading format exact and add new work under `[Unreleased]`.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-17
+
+Undo now works on OAuth-connected accounts, including Gmail, and the upstream
+login check when adding a password account verifies TLS. Upgrading from 0.1.2
+is recommended for anyone on Gmail/Google Workspace who wants undo.
+
 ### Security
 - The upstream login check when adding an agent with a password now verifies
   the IMAP server's TLS certificate and hostname. A certificate failure is
   reported as such (`imap_tls_verify_failed`); private CAs work via `SSL_CERT_FILE`.
+
+### Changed
+- The README has a provider status table, and each `docs/providers/*.md`
+  guide states whether that provider is verified against a live account:
+  Gmail / Google Workspace (OAuth2) and generic IMAP/SMTP (MXRoute) are;
+  Outlook / Microsoft 365 and iCloud are built and unit-tested but not yet
+  live-verified ([#193](https://github.com/agens-field/nuvrail/pull/193),
+  [#196](https://github.com/agens-field/nuvrail/pull/196)).
 
 ### Fixed
 - Undo now works for OAuth-connected accounts (Gmail and Outlook via XOAUTH2).
