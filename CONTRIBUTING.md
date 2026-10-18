@@ -10,7 +10,7 @@ tree** are non-negotiable. This guide gets you from clone to a green PR.
 ## Ways to contribute
 
 - **Report a bug** — open an issue with the bug template. Include your provider
-  (Gmail / iCloud / generic IMAP), Nuvrail version or commit, and repro steps.
+  (your provider, as in the bug template's dropdown), Nuvrail version or commit, and repro steps.
 - **Request a feature** — open an issue with the feature template and describe
   the problem before the solution.
 - **Report a security vulnerability** — **do not** open a public issue. Follow
